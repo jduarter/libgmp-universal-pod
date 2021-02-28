@@ -11,11 +11,6 @@ Pod::Spec.new do |spec|
   spec.platform = :ios
   spec.ios.deployment_target = '11.0'
 
-#      generate_32bit_headers
-#      build_for_architecture iphoneos armv7 arm-apple-darwin
-#      build_for_architecture iphonesimulator i386 i386-apple-darwin
-#      clean
-
   spec.prepare_command = <<-CMD
     build_for_ios() {
       generate_64bit_headers
@@ -31,8 +26,6 @@ Pod::Spec.new do |spec|
       generate_headers x86_64
     }
     generate_headers() {
-      echo "path is: `pwd`"
-      echo "generate headers for arch=$1";
       ARCH=$1
       ./configure \
         CPPFLAGS="-arch ${ARCH}" \
@@ -43,7 +36,6 @@ Pod::Spec.new do |spec|
       make -j 16
     }
     build_for_architecture() {
-      echo "build for arch=$1, $2, $3"
       PLATFORM=$1
       ARCH=$2
       HOST=$3
