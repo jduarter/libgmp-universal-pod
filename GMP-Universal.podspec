@@ -12,39 +12,37 @@ Pod::Spec.new do |spec|
   spec.ios.deployment_target = '11.0'
 
   spec.prepare_command = <<-CMD
+    MIN_IOS="11.0"
+
     build_for_ios() {
-      generate_64bit_headers
-      build_for_architecture iphoneos arm64 arm-apple-darwin
+      build_for_architecture iphoneos arm64 arm64-apple-darwin
       build_for_architecture iphonesimulator x86_64 x86_64-apple-darwin
-      build_for_architecture iphonesimulator arm64 arm64-apple-darwin
       create_universal_library
-    }
-    generate_32bit_headers() {
-      generate_headers i386
-    }
-    generate_64bit_headers() {
-      generate_headers x86_64
-    }
-    generate_headers() {
-      ARCH=$1
-      ./configure \
-        CPPFLAGS="-arch ${ARCH}" \
-        LDFLAGS="-arch ${ARCH}" \
-        --disable-assembly \
-        --quiet \
-        --enable-silent-rules
-      make -j 16
     }
     build_for_architecture() {
       PLATFORM=$1
       ARCH=$2
       HOST=$3
       SDKPATH=`xcrun -sdk $PLATFORM --show-sdk-path`
-      PREFIX=$(pwd)/build/$ARCH
+      CLANG=`xcrun -sdk $PLATFORM -find cc`
+      MAKE=`xcrun -sdk $PLATFORM -f make`
+
+      PREFIX=$(pwd)/build/${PLATFORM}_${ARCH}
+
+      if [ "${PLATFORM}" = "iphoneos" ]; then
+	EXTRAS="-miphoneos-version-min=${MIN_IOS} -no-integrated-as -arch ${ARCH} -target ${ARCH}-apple-darwin";
+      fi
+
+      if [ "${PLATFORM}" = "iphonesimulator" ]; then
+        EXTRAS="-no-integrated-as -arch ${ARCH} -target ${ARCH}-apple-darwin";
+      fi
+
+      CFLAGS="-isysroot ${SDKPATH} -Wno-error -Wno-implicit-function-declaration ${EXTRAS}"
+
       ./configure \
-        CC=`xcrun -sdk $PLATFORM -find cc` \
+        CC="${CLANG} ${CFLAGS}" \
         CXX=`xcrun -sdk $PLATFORM -find c++` \
-        CPP=`xcrun -sdk $PLATFORM -find cc`" -E" \
+        CPP="${CLANG} -E" \
         LD=`xcrun -sdk $PLATFORM -find ld` \
         AR=`xcrun -sdk $PLATFORM -find ar` \
         NM=`xcrun -sdk $PLATFORM -find nm` \
@@ -54,31 +52,40 @@ Pod::Spec.new do |spec|
         OTOOL=`xcrun -sdk $PLATFORM -find otool` \
         RANLIB=`xcrun -sdk $PLATFORM -find ranlib` \
         STRIP=`xcrun -sdk $PLATFORM -find strip` \
-        CPPFLAGS="-arch $ARCH -isysroot $SDKPATH" \
+        CPPFLAGS="${CFLAGS} -stdlib=libc++" \
+	CXXFLAGS="${CFLAGS} -stdlib=libc++" \
         LDFLAGS="-arch $ARCH -headerpad_max_install_names" \
-        --host=$HOST \
+        --host=${HOST} \
         --disable-assembly \
         --enable-cxx \
         --prefix=$PREFIX \
         --quiet --enable-silent-rules
-      xcrun -sdk $PLATFORM make mostlyclean
-      xcrun -sdk $PLATFORM make install
+
+      $MAKE -j `sysctl -n hw.logicalcpu_max`
+      $MAKE install
+      $MAKE mostlyclean
     }
     create_universal_library() {
+      echo "Creating universal library..."
+
       lipo -create -output libgmp.dylib \
-        build/{x86_64,arm64}/lib/libgmp.dylib
+        build/{iphoneos_arm64,iphonesimulator_x86_64}/lib/libgmp.dylib
+
       lipo -create -output libgmpxx.dylib \
-        build/{x86_64,arm64}/lib/libgmpxx.dylib
+        build/{iphoneos_arm64,iphonesimulator_x86_64}/lib/libgmpxx.dylib 
+
       update_dylib_names
       update_dylib_references
     }
     update_dylib_names() {
+      echo "update dylib names..."
       install_name_tool -id "@rpath/libgmp.dylib" libgmp.dylib
       install_name_tool -id "@rpath/libgmpxx.dylib" libgmpxx.dylib
     }
     update_dylib_references() {
-      update_dylib_reference_for_architecture x86_64
-      update_dylib_reference_for_architecture arm64
+      echo "update dylib references..."
+      update_dylib_reference_for_architecture iphoneos_arm64
+      update_dylib_reference_for_architecture iphonesimulator_x86_64
     }
     update_dylib_reference_for_architecture() {
       ARCH=$1
@@ -95,4 +102,6 @@ CMD
 
   spec.source_files = "gmp.h", "gmpxx.h"
   spec.ios.vendored_libraries = "libgmp.dylib", "libgmpxx.dylib"
+  spec.pod_target_xcconfig = { 'ONLY_ACTIVE_ARCH' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64' }
+  spec.user_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'arm64' }
 end
